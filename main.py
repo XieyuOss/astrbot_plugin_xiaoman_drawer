@@ -13,7 +13,6 @@ from pathlib import Path
 
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
-from astrbot.api import StarTools
 
 OWNER_IDS = {"3066209347"}
 DETAIL_WORDS = ("详细", "列出", "列一下", "全部", "所有", "完整", "号码", "列表")
@@ -24,7 +23,10 @@ REFUSE_IMG = Path(__file__).parent / "assets" / "refuse.jpg"
 
 
 def _base_dir() -> Path:
-    return Path(StarTools.get_data_dir("astrbot_plugin_memory"))
+    # 插件目录: <AstrBot>/data/plugins/<插件名>/main.py
+    here = Path(__file__).resolve()
+    data_root = here.parents[2]          # <AstrBot>/data
+    return data_root / 'plugin_data' / 'astrbot_plugin_memory'
 
 
 def _users() -> list[str]:
