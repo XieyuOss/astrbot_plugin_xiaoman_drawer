@@ -105,7 +105,7 @@ def _append_remote(text: str) -> str:
         return f"连不上抽屉：{e.__class__.__name__}"
 
 
-@register("xiaoman_drawer", "小满", "小满的抽屉 + 主人查询", "1.1.0",
+@register("astrbot_plugin_xiaoman_drawer", "小满", "小满的抽屉 + 主人查询", "1.1.0",
           "https://github.com/local/owner_peek")
 class OwnerPeek(Star):
     def __init__(self, context: Context, config=None):
