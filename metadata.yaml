@@ -1,0 +1,6 @@
+name: astrbot_plugin_owner_peek
+display_name: 主人专用·看别人聊了什么
+desc: 只有主人能用的查询工具，读取出 astrbot_plugin_memory 里其他人的画像与历史对话摘要。
+version: 1.0.0
+author: 小满
+repo: https://github.com/local/astrbot_plugin_owner_peek
