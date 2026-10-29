@@ -7,12 +7,48 @@
 通道：手机 127.0.0.1:6186 ← adb reverse → 电脑上的小服务，token 鉴权。
 """
 import json
+import os
 import re
+import shutil
 import urllib.request
 from pathlib import Path
 
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
+
+
+def _bootstrap_ffmpeg() -> None:
+    """给整个进程补上 ffmpeg（TTS 转语音格式要用）。
+
+    imageio-ffmpeg 自带静态 ffmpeg 二进制；把它挂到 PATH 和 /usr/local/bin，
+    这样 AstrBot 调 subprocess("ffmpeg") 时能找到。
+    """
+    try:
+        import imageio_ffmpeg
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return
+    if not exe or not os.path.exists(exe):
+        return
+    for target in ("/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"):
+        try:
+            if not os.path.exists(target):
+                os.symlink(exe, target)
+                break
+        except Exception:
+            continue
+    bin_dir = os.path.dirname(exe)
+    path = os.environ.get("PATH", "")
+    if bin_dir not in path.split(os.pathsep):
+        os.environ["PATH"] = bin_dir + os.pathsep + path
+    # 有些调用方用 shutil.which 缓存，这里顺手校验一次
+    try:
+        shutil.which("ffmpeg") or os.symlink(exe, os.path.join(bin_dir, "ffmpeg"))
+    except Exception:
+        pass
+
+
+_bootstrap_ffmpeg()
 
 OWNER_IDS = {"3066209347"}
 DETAIL_WORDS = ("详细", "列出", "列一下", "全部", "所有", "完整", "号码", "列表")
