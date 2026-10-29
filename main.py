@@ -55,6 +55,12 @@ DETAIL_WORDS = ("详细", "列出", "列一下", "全部", "所有", "完整", "
 
 MEM_SERVICE = "http://127.0.0.1:6186"
 MEM_TOKEN = ""  # 运行时从插件配置 mem_token 读取
+
+# 语音：柔软少女音。晓晓（XiaoxiaoNeural）比晓伊更柔；语速略慢、音高略高更"软"
+VOICE = "zh-CN-XiaoxiaoNeural"
+RATE = "-8%"
+PITCH = "+2Hz"
+TMP_DIR = "/tmp/xiaoman_voice"
 REFUSE_IMG = Path(__file__).parent / "assets" / "refuse.jpg"
 
 
@@ -156,6 +162,79 @@ class OwnerPeek(Star):
 
     def _is_owner(self, event: AstrMessageEvent) -> bool:
         return str(event.get_sender_id() or "").strip() in OWNER_IDS
+
+    # ── 说话（她自己决定发不发语音）────────────────
+    async def _speak(self, text: str) -> str | None:
+        """合成一条语音，返回文件路径；失败返回 None。"""
+        text = (text or "").strip()
+        if not text:
+            return None
+        try:
+            import edge_tts
+            out = Path(TMP_DIR) / f"xm_{abs(hash(text)) % 10**10}.mp3"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            comm = edge_tts.Communicate(text, VOICE, rate=RATE, pitch=PITCH, volume="+0%")
+            await comm.save(str(out))
+            return str(out) if out.exists() and out.stat().st_size > 800 else None
+        except Exception as e:
+            logger = getattr(self, "logger", None)
+            if logger:
+                logger.warning(f"[xiaoman] 语音合成失败: {e}")
+            return None
+
+    def _record(self, path: str):
+        try:
+            from astrbot.core.message.components import Record
+        except Exception:
+            try:
+                from astrbot.api.message_components import Record  # 旧版
+            except Exception:
+                return None
+        try:
+            return Record.fromFileSystem(path)
+        except Exception:
+            return None
+
+    @filter.llm_tool(name="say_voice")
+    async def say_voice_tool(self, event: AstrMessageEvent, text: str):
+        """想让人听见声音时说一句话。不想说就不调用——发不发语音由你自己决定。
+
+        Args:
+            text(string): 要说的话，一句话，别太长
+        """
+        text = str(text)[:200]
+        path = await self._speak(text)
+        if not path:
+            return "这次没能出声，用文字说吧"
+        rec = self._record(path)
+        if rec is None:
+            return "这次没能出声，用文字说吧"
+        return event.chain_result([rec])
+
+    @filter.command("说")
+    async def say_cmd(self, event: AstrMessageEvent):
+        text = re.sub(r"^\S+\s*", "", event.message_str or "").strip()
+        if not text:
+            yield event.plain_result("说什么")
+            return
+        path = await self._speak(text[:200])
+        rec = self._record(path) if path else None
+        if rec is None:
+            yield event.plain_result("这次没能出声")
+            return
+        yield event.chain_result([rec])
+
+    # ── 把回复里的空行压掉（她发消息不该一段一空行）──
+    @filter.on_llm_response()
+    async def tidy_reply(self, event: AstrMessageEvent, resp):
+        try:
+            text = getattr(resp, "completion_text", None)
+            if isinstance(text, str) and text:
+                cleaned = re.sub(r"\n[ \t]*\n+", "\n", text)
+                resp.completion_text = cleaned
+        except Exception:
+            pass
+        return resp
 
     def _refuse(self, event: AstrMessageEvent):
         try:
