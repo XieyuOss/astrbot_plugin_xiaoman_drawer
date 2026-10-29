@@ -8,5 +8,10 @@
     "type": "string",
     "description": "写入口令（和老爹电脑上 qq-memory-token.txt 里的值一致）",
     "default": ""
+  },
+  "tts_token": {
+    "type": "string",
+    "description": "语音服务口令（和老爹电脑 tts-token.txt 一致）",
+    "default": ""
   }
 }
