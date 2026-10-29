@@ -209,10 +209,13 @@ class OwnerPeek(Star):
 
     @filter.llm_tool(name="say_voice")
     async def say_voice_tool(self, event: AstrMessageEvent, text: str):
-        """想让人听见声音时说一句话。不想说就不调用——发不发语音由你自己决定。
+        """把你要说的话用声音说出来。不想出声就别调用——发不发语音由你自己决定。
+
+        重要：text 必须是你这次要回复的那句话本身，原样放进来。
+        不要另写一段、不要概括、不要换话题——音里说的和文字看到的必须是同一句。
 
         Args:
-            text(string): 要说的话，一句话，别太长
+            text(string): 你要说的那一句原话，一句话，别太长
         """
         text = str(text)[:200]
         path = await self._speak(text)
