@@ -56,10 +56,9 @@ DETAIL_WORDS = ("详细", "列出", "列一下", "全部", "所有", "完整", "
 MEM_SERVICE = "http://127.0.0.1:6186"
 MEM_TOKEN = ""  # 运行时从插件配置 mem_token 读取
 
-# 语音：柔软少女音。晓晓（XiaoxiaoNeural）比晓伊更柔；语速略慢、音高略高更"软"
-VOICE = "zh-CN-XiaoxiaoNeural"
-RATE = "-8%"
-PITCH = "+2Hz"
+# 语音：老爹电脑上的 GPT-SoVITS 本地服务（参考音克隆），走 adb reverse
+TTS_SERVICE = "http://127.0.0.1:6187"
+TTS_TOKEN = ""  # 运行时从插件配置 tts_token 读取
 TMP_DIR = "/tmp/xiaoman_voice"
 REFUSE_IMG = Path(__file__).parent / "assets" / "refuse.jpg"
 
@@ -154,32 +153,45 @@ def _append_remote(text: str) -> str:
 class OwnerPeek(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context, config)
-        global MEM_TOKEN
+        global MEM_TOKEN, TTS_TOKEN
         try:
             MEM_TOKEN = str((config or {}).get("mem_token", "") or "")
         except Exception:
             MEM_TOKEN = ""
+        try:
+            TTS_TOKEN = str((config or {}).get("tts_token", "") or "")
+        except Exception:
+            TTS_TOKEN = ""
 
     def _is_owner(self, event: AstrMessageEvent) -> bool:
         return str(event.get_sender_id() or "").strip() in OWNER_IDS
 
     # ── 说话（她自己决定发不发语音）────────────────
     async def _speak(self, text: str) -> str | None:
-        """合成一条语音，返回文件路径；失败返回 None。"""
+        """向老爹电脑上的本地语音服务要一段 wav（GPT-SoVITS + 参考音克隆）。"""
         text = (text or "").strip()
         if not text:
             return None
+        out = Path(TMP_DIR) / f"xm_{abs(hash(text)) % 10**10}.wav"
         try:
-            import edge_tts
-            out = Path(TMP_DIR) / f"xm_{abs(hash(text)) % 10**10}.mp3"
             out.parent.mkdir(parents=True, exist_ok=True)
-            comm = edge_tts.Communicate(text, VOICE, rate=RATE, pitch=PITCH, volume="+0%")
-            await comm.save(str(out))
-            return str(out) if out.exists() and out.stat().st_size > 800 else None
+            body = json.dumps({"text": text[:120]}, ensure_ascii=False).encode("utf-8")
+            req = urllib.request.Request(
+                TTS_SERVICE + "/tts", data=body,
+                headers={"content-type": "application/json; charset=utf-8",
+                         "x-token": TTS_TOKEN},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=180) as r:
+                data = r.read()
+            if len(data) < 2000:
+                return None
+            out.write_bytes(data)
+            return str(out)
         except Exception as e:
             logger = getattr(self, "logger", None)
             if logger:
-                logger.warning(f"[xiaoman] 语音合成失败: {e}")
+                logger.warning(f"[xiaoman] 语音失败: {e}")
             return None
 
     def _record(self, path: str):
