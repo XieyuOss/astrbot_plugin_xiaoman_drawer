@@ -235,16 +235,19 @@ class OwnerPeek(Star):
         重要：text 必须是你这次要回复的那句话本身，原样放进来。
         不要另写一段、不要概括、不要换话题——音里说的和文字看到的必须是同一句。
 
+        想知道能不能出声，只能调用这个工具试一次。
+        不许凭印象说"端口没开""服务没起来"——没调用就没有发言权。
+
         Args:
             text(string): 你要说的那一句原话，一句话，别太长
         """
         text = str(text)[:200]
         path = await self._speak(text)
         if not path:
-            return "这次没能出声，用文字说吧"
+            return "这次真没出声：刚试过合成，失败了。可以直接说没成功，别猜原因"
         rec = self._record(path)
         if rec is None:
-            return "这次没能出声，用文字说吧"
+            return "合成好了，但发不出去（消息组件失败）"
         return event.chain_result([rec])
 
     @filter.command("说")
