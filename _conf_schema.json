@@ -18,5 +18,15 @@
     "type": "string",
     "description": "语音服务地址（Tailscale 的 http://100.x.x.x:6187 或留空用本机隧道）",
     "default": ""
+  },
+  "tts_cloud_key": {
+    "type": "string",
+    "description": "云语音 key（阿里云百炼 DashScope），留空则不用云",
+    "default": ""
+  },
+  "tts_cloud_model": {
+    "type": "string",
+    "description": "云语音模型",
+    "default": "qwen3-tts-flash"
   }
 }
