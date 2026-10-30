@@ -148,6 +148,27 @@ def _append_remote(text: str) -> str:
         return f"连不上抽屉：{e.__class__.__name__}"
 
 
+def _drawer_op(path: str, payload: dict) -> str:
+    """调用抽屉的 edit / forget。老爹写的【记录】条目服务端会拒绝。"""
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        MEM_SERVICE + path, data=data,
+        headers={"content-type": "application/json; charset=utf-8", "x-token": MEM_TOKEN},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=8) as r:
+            j = json.loads(r.read().decode())
+            if j.get("ok"):
+                return "ok"
+            why = j.get("why", "")
+            if why == "not-found-or-protected":
+                return "没找到，或者那条是老爹写的，你不能动"
+            return "failed"
+    except Exception as e:
+        return f"连不上抽屉：{e.__class__.__name__}"
+
+
 @register("astrbot_plugin_xiaoman_drawer", "小满", "小满的抽屉 + 主人查询", "1.1.0",
           "https://github.com/local/owner_peek")
 class OwnerPeek(Star):
@@ -291,6 +312,25 @@ class OwnerPeek(Star):
             content(string): 要记住的一句话，尽量短
         """
         return _append_remote(str(content)[:500])
+
+    @filter.llm_tool(name="drawer_edit")
+    async def drawer_edit_tool(self, event: AstrMessageEvent, find: str, text: str):
+        """改你自己写在抽屉里的一条记忆。只能改你写的，老爹写的动不了。
+
+        Args:
+            find(string): 用来定位那条的几个字（要有辨识度）
+            text(string): 改成什么
+        """
+        return _drawer_op("/edit", {"find": str(find)[:40], "text": str(text)[:500]})
+
+    @filter.llm_tool(name="drawer_forget")
+    async def drawer_forget_tool(self, event: AstrMessageEvent, find: str):
+        """忘掉你自己写在抽屉里的一条记忆。只能删你写的，老爹写的动不了。
+
+        Args:
+            find(string): 用来定位那条的几个字（要有辨识度）
+        """
+        return _drawer_op("/forget", {"find": str(find)[:40]})
 
     @filter.command("记住")
     async def remember_cmd(self, event: AstrMessageEvent):
