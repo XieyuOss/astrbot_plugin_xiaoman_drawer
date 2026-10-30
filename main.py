@@ -60,6 +60,8 @@ MEM_TOKEN = ""  # 运行时从插件配置 mem_token 读取
 TTS_SERVICE = "http://127.0.0.1:6187"
 TTS_TOKEN = ""  # 运行时从插件配置 tts_token 读取
 TMP_DIR = "/tmp/xiaoman_voice"
+# 电脑端连不上时的兜底音色（微软中文女声，不是克隆音，但保证能出声）
+FALLBACK_VOICE = "zh-CN-XiaoxiaoNeural"
 REFUSE_IMG = Path(__file__).parent / "assets" / "refuse.jpg"
 
 
@@ -203,9 +205,10 @@ class OwnerPeek(Star):
         return urls
 
     async def _speak(self, text: str) -> str | None:
-        """向老爹电脑上的本地语音服务要一段 wav（GPT-SoVITS + 参考音克隆）。
+        """先试老爹电脑上的克隆音；连不上就用本机 edge-tts 兜底，保证有声音。
 
         地址可以是 Tailscale 的 100.x，也可以是 adb 隧道；哪个通就用哪个。
+        都不通时退回 edge-tts（音色会变，但不会哑）。
         """
         text = (text or "").strip()
         if not text:
@@ -222,7 +225,7 @@ class OwnerPeek(Star):
                              "x-token": TTS_TOKEN},
                     method="POST",
                 )
-                with urllib.request.urlopen(req, timeout=180) as r:
+                with urllib.request.urlopen(req, timeout=60) as r:
                     data = r.read()
                 if len(data) > 2000:
                     out.write_bytes(data)
@@ -231,6 +234,21 @@ class OwnerPeek(Star):
             except Exception as e:
                 last_err = f"{base} {e}"
                 continue
+
+        # 兜底：本机 edge-tts（不依赖电脑，但有网就行）
+        try:
+            import edge_tts
+            fallback = Path(TMP_DIR) / f"xm_{abs(hash(text)) % 10**10}.mp3"
+            comm = edge_tts.Communicate(text[:120], FALLBACK_VOICE, rate="-4%", pitch="+2Hz")
+            await comm.save(str(fallback))
+            if fallback.exists() and fallback.stat().st_size > 2000:
+                logger = getattr(self, "logger", None)
+                if logger:
+                    logger.info(f"[xiaoman] 电脑端不可用，已用 edge-tts 兜底（{last_err}）")
+                return str(fallback)
+        except Exception as e:
+            last_err = f"{last_err}; 兜底也失败 {e}"
+
         logger = getattr(self, "logger", None)
         if logger:
             logger.warning(f"[xiaoman] 语音失败: {last_err}")
@@ -332,6 +350,25 @@ class OwnerPeek(Star):
         """
         return _drawer_op("/forget", {"find": str(find)[:40]})
 
+    @filter.llm_tool(name="write_diary")
+    async def write_diary_tool(self, event: AstrMessageEvent, text: str):
+        """想写日记就写，不用等老爹下指令。写到老爹电脑上你自己的日记本里。
+
+        Args:
+            text(string): 今天想记的东西，可以是几句话
+        """
+        data = json.dumps({"text": str(text)[:3000]}, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(
+            MEM_SERVICE + "/diary", data=data,
+            headers={"content-type": "application/json; charset=utf-8", "x-token": MEM_TOKEN},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=8) as r:
+                return "ok" if json.loads(r.read().decode()).get("ok") else "failed"
+        except Exception as e:
+            return f"连不上日记本：{e.__class__.__name__}"
+
     @filter.command("记住")
     async def remember_cmd(self, event: AstrMessageEvent):
         text = re.sub(r"^\S+\s*", "", event.message_str or "").strip()
@@ -340,6 +377,15 @@ class OwnerPeek(Star):
             return
         res = _append_remote(text[:800])
         yield event.plain_result("记下了" if res == "ok" else res)
+
+    @filter.command("写日记")
+    async def diary_cmd(self, event: AstrMessageEvent):
+        text = re.sub(r"^\S+\s*", "", event.message_str or "").strip()
+        if not text:
+            yield event.plain_result("写什么")
+            return
+        res = await self.write_diary_tool(event, text)
+        yield event.plain_result("写进去了" if res == "ok" else str(res))
 
     @filter.command("有人找你吗")
     async def who(self, event: AstrMessageEvent):
