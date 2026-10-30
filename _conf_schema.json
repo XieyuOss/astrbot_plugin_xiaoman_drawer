@@ -13,5 +13,10 @@
     "type": "string",
     "description": "语音服务口令（和老爹电脑 tts-token.txt 一致）",
     "default": ""
+  },
+  "tts_service": {
+    "type": "string",
+    "description": "语音服务地址（Tailscale 的 http://100.x.x.x:6187 或留空用本机隧道）",
+    "default": ""
   }
 }
