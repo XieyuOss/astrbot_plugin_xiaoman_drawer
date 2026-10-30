@@ -62,6 +62,11 @@ TTS_TOKEN = ""  # 运行时从插件配置 tts_token 读取
 TMP_DIR = "/tmp/xiaoman_voice"
 # 电脑端连不上时的兜底音色（微软中文女声，不是克隆音，但保证能出声）
 FALLBACK_VOICE = "zh-CN-XiaoxiaoNeural"
+# 云语音（阿里云百炼 DashScope）：有 key 就优先于 edge-tts 兜底
+TTS_CLOUD_KEY = ""
+TTS_CLOUD_MODEL = "qwen3-tts-flash"
+TTS_CLOUD_VOICE = "Cherry"
+TTS_CLOUD_URL = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
 REFUSE_IMG = Path(__file__).parent / "assets" / "refuse.jpg"
 
 
@@ -190,6 +195,12 @@ class OwnerPeek(Star):
             TTS_SERVICE = str((config or {}).get("tts_service", "") or "") or TTS_SERVICE
         except Exception:
             pass
+        try:
+            global TTS_CLOUD_KEY, TTS_CLOUD_MODEL
+            TTS_CLOUD_KEY = str((config or {}).get("tts_cloud_key", "") or "")
+            TTS_CLOUD_MODEL = str((config or {}).get("tts_cloud_model", "") or "qwen3-tts-flash")
+        except Exception:
+            pass
 
     def _is_owner(self, event: AstrMessageEvent) -> bool:
         return str(event.get_sender_id() or "").strip() in OWNER_IDS
@@ -235,7 +246,15 @@ class OwnerPeek(Star):
                 last_err = f"{base} {e}"
                 continue
 
-        # 兜底：本机 edge-tts（不依赖电脑，但有网就行）
+        # 兜底一：云语音（音色比 edge 更像人，按字计费但便宜）
+        cloud = await self._speak_cloud(text)
+        if cloud:
+            logger = getattr(self, "logger", None)
+            if logger:
+                logger.info(f"[xiaoman] 电脑端不可用，走云语音（{last_err}）")
+            return cloud
+
+        # 兜底二：本机 edge-tts（不依赖电脑，但有网就行）
         try:
             import edge_tts
             fallback = Path(TMP_DIR) / f"xm_{abs(hash(text)) % 10**10}.mp3"
@@ -252,6 +271,39 @@ class OwnerPeek(Star):
         logger = getattr(self, "logger", None)
         if logger:
             logger.warning(f"[xiaoman] 语音失败: {last_err}")
+        return None
+
+    async def _speak_cloud(self, text: str) -> str | None:
+        """百炼云语音（qwen3-tts）。有 key 时优先于 edge-tts 兜底，音色可用 Cherry。"""
+        if not TTS_CLOUD_KEY:
+            return None
+        try:
+            payload = json.dumps({
+                "model": TTS_CLOUD_MODEL,
+                "input": {"text": text[:120], "voice": TTS_CLOUD_VOICE},
+            }, ensure_ascii=False).encode("utf-8")
+            req = urllib.request.Request(
+                TTS_CLOUD_URL, data=payload,
+                headers={"content-type": "application/json; charset=utf-8",
+                         "authorization": f"Bearer {TTS_CLOUD_KEY}"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=60) as r:
+                j = json.loads(r.read().decode())
+            audio = ((j.get("output") or {}).get("audio") or {})
+            url = audio.get("url") or ""
+            if not url:
+                return None
+            out = Path(TMP_DIR) / f"xm_cloud_{abs(hash(text)) % 10**10}.wav"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            with urllib.request.urlopen(url, timeout=60) as r2:
+                out.write_bytes(r2.read())
+            if out.exists() and out.stat().st_size > 2000:
+                return str(out)
+        except Exception as e:
+            logger = getattr(self, "logger", None)
+            if logger:
+                logger.warning(f"[xiaoman] 云语音失败: {e}")
         return None
 
     def _record(self, path: str):
