@@ -160,6 +160,11 @@ class OwnerPeek(Star):
             MEM_TOKEN = ""
         try:
             TTS_TOKEN = str((config or {}).get("tts_token", "") or "")
+        try:
+            global TTS_SERVICE
+            TTS_SERVICE = str((config or {}).get("tts_service", "") or "") or TTS_SERVICE
+        except Exception:
+            pass
         except Exception:
             TTS_TOKEN = ""
 
@@ -167,32 +172,48 @@ class OwnerPeek(Star):
         return str(event.get_sender_id() or "").strip() in OWNER_IDS
 
     # ── 说话（她自己决定发不发语音）────────────────
+    def _tts_candidates(self) -> list[str]:
+        """按优先级给出可用地址：配置的远程地址 → 本机隧道 → 直连。"""
+        urls = []
+        for u in (TTS_SERVICE, "http://127.0.0.1:6187"):
+            u = (u or "").strip().rstrip("/")
+            if u and u not in urls:
+                urls.append(u)
+        return urls
+
     async def _speak(self, text: str) -> str | None:
-        """向老爹电脑上的本地语音服务要一段 wav（GPT-SoVITS + 参考音克隆）。"""
+        """向老爹电脑上的本地语音服务要一段 wav（GPT-SoVITS + 参考音克隆）。
+
+        地址可以是 Tailscale 的 100.x，也可以是 adb 隧道；哪个通就用哪个。
+        """
         text = (text or "").strip()
         if not text:
             return None
         out = Path(TMP_DIR) / f"xm_{abs(hash(text)) % 10**10}.wav"
-        try:
-            out.parent.mkdir(parents=True, exist_ok=True)
-            body = json.dumps({"text": text[:120]}, ensure_ascii=False).encode("utf-8")
-            req = urllib.request.Request(
-                TTS_SERVICE + "/tts", data=body,
-                headers={"content-type": "application/json; charset=utf-8",
-                         "x-token": TTS_TOKEN},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=180) as r:
-                data = r.read()
-            if len(data) < 2000:
-                return None
-            out.write_bytes(data)
-            return str(out)
-        except Exception as e:
-            logger = getattr(self, "logger", None)
-            if logger:
-                logger.warning(f"[xiaoman] 语音失败: {e}")
-            return None
+        body = json.dumps({"text": text[:120]}, ensure_ascii=False).encode("utf-8")
+        last_err = None
+        for base in self._tts_candidates():
+            try:
+                out.parent.mkdir(parents=True, exist_ok=True)
+                req = urllib.request.Request(
+                    base + "/tts", data=body,
+                    headers={"content-type": "application/json; charset=utf-8",
+                             "x-token": TTS_TOKEN},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=180) as r:
+                    data = r.read()
+                if len(data) > 2000:
+                    out.write_bytes(data)
+                    return str(out)
+                last_err = f"{base} 返回过短"
+            except Exception as e:
+                last_err = f"{base} {e}"
+                continue
+        logger = getattr(self, "logger", None)
+        if logger:
+            logger.warning(f"[xiaoman] 语音失败: {last_err}")
+        return None
 
     def _record(self, path: str):
         try:
