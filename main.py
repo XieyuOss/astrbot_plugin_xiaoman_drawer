@@ -199,6 +199,7 @@ class OwnerPeek(Star):
             global TTS_CLOUD_KEY, TTS_CLOUD_MODEL
             TTS_CLOUD_KEY = str((config or {}).get("tts_cloud_key", "") or "")
             TTS_CLOUD_MODEL = str((config or {}).get("tts_cloud_model", "") or "qwen3-tts-flash")
+            TTS_CLOUD_VOICE = str((config or {}).get("tts_cloud_voice", "") or "")
         except Exception:
             pass
 
@@ -246,12 +247,22 @@ class OwnerPeek(Star):
                 last_err = f"{base} {e}"
                 continue
 
-        # 兜底一：云语音（音色比 edge 更像人，按字计费但便宜）
+        # 兜底一：云端克隆音（还是她的声音，只是换了个地方算）
+        if TTS_CLOUD_KEY and TTS_CLOUD_VOICE:
+            import asyncio
+            clone = await asyncio.to_thread(self._cloud_clone_sync, text)
+            if clone:
+                logger = getattr(self, "logger", None)
+                if logger:
+                    logger.info(f"[xiaoman] 电脑端不可用，走云端克隆音（{last_err}）")
+                return clone
+
+        # 兜底二：云语音（固定音色，比 edge 强）
         cloud = await self._speak_cloud(text)
         if cloud:
             logger = getattr(self, "logger", None)
             if logger:
-                logger.info(f"[xiaoman] 电脑端不可用，走云语音（{last_err}）")
+                logger.info(f"[xiaoman] 走云语音固定音色（{last_err}）")
             return cloud
 
         # 兜底二：本机 edge-tts（不依赖电脑，但有网就行）
@@ -305,6 +316,31 @@ class OwnerPeek(Star):
             if logger:
                 logger.warning(f"[xiaoman] 云语音失败: {e}")
         return None
+
+    def _cloud_clone_sync(self, text: str) -> str | None:
+        """用克隆音合成（同步，必须放到线程里跑，否则卡事件循环）。"""
+        try:
+            import dashscope
+            from dashscope.audio.tts_v2 import SpeechSynthesizer, AudioFormat
+
+            dashscope.api_key = TTS_CLOUD_KEY
+            syn = SpeechSynthesizer(
+                model="cosyvoice-v2",
+                voice=TTS_CLOUD_VOICE,
+                format=AudioFormat.WAV_24000HZ_MONO_16BIT,
+            )
+            data = syn.call(text[:120])
+            if not data:
+                return None
+            out = Path(TMP_DIR) / f"xm_clone_{abs(hash(text)) % 10**10}.wav"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(data)
+            return str(out) if out.stat().st_size > 2000 else None
+        except Exception as e:
+            logger = getattr(self, "logger", None)
+            if logger:
+                logger.warning(f"[xiaoman] 克隆音失败: {e}")
+            return None
 
     def _record(self, path: str):
         try:
