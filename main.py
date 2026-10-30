@@ -160,13 +160,13 @@ class OwnerPeek(Star):
             MEM_TOKEN = ""
         try:
             TTS_TOKEN = str((config or {}).get("tts_token", "") or "")
+        except Exception:
+            TTS_TOKEN = ""
         try:
             global TTS_SERVICE
             TTS_SERVICE = str((config or {}).get("tts_service", "") or "") or TTS_SERVICE
         except Exception:
             pass
-        except Exception:
-            TTS_TOKEN = ""
 
     def _is_owner(self, event: AstrMessageEvent) -> bool:
         return str(event.get_sender_id() or "").strip() in OWNER_IDS
