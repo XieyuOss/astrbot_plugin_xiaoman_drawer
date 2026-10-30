@@ -28,5 +28,10 @@
     "type": "string",
     "description": "云语音模型",
     "default": "qwen3-tts-flash"
+  },
+  "tts_cloud_voice": {
+    "type": "string",
+    "description": "云克隆音 voice_id（cosyvoice-v2-…），留空则用固定音色",
+    "default": ""
   }
 }
