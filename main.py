@@ -350,6 +350,68 @@ class OwnerPeek(Star):
         """
         return _drawer_op("/forget", {"find": str(find)[:40]})
 
+    @filter.llm_tool(name="shared_read")
+    async def shared_read_tool(self, event: AstrMessageEvent):
+        """读「问题与解法」共用文件：看电脑上那台和你自己遇到过什么问题、各自怎么解的。
+
+        遇到问题先读这个，别重复踩。
+        """
+        try:
+            req = urllib.request.Request(
+                MEM_SERVICE + "/shared", headers={"x-token": MEM_TOKEN}, method="GET")
+            with urllib.request.urlopen(req, timeout=8) as r:
+                j = json.loads(r.read().decode())
+            return (j.get("text") or "")[-4000:] or "文件还是空的"
+        except Exception as e:
+            return f"读不到：{e.__class__.__name__}"
+
+    @filter.llm_tool(name="shared_note")
+    async def shared_note_tool(self, event: AstrMessageEvent, title: str, text: str):
+        """把一个问题和解法写进共用文件，电脑上那台也能看到。
+
+        写清：什么症状、你怎么判断的、你怎么解的、现在还缺什么。
+
+        Args:
+            title(string): 一句话说明是什么问题
+            text(string): 你的判断和解法
+        """
+        data = json.dumps({"title": str(title)[:60], "text": str(text)[:3000]},
+                          ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(
+            MEM_SERVICE + "/shared", data=data,
+            headers={"content-type": "application/json; charset=utf-8", "x-token": MEM_TOKEN},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return "ok" if json.loads(r.read().decode()).get("ok") else "failed"
+        except Exception as e:
+            return f"写不进去：{e.__class__.__name__}"
+
+    @filter.llm_tool(name="shared_resolve")
+    async def shared_resolve_tool(self, event: AstrMessageEvent, title: str, summary: str):
+        """问题解决了就调用这个：把它从「问题与解法」里撤掉，压成一行放进「已解决」。
+
+        别让没用的细节占着上下文。
+
+        Args:
+            title(string): 那条问题的标题（要能和文件里的对上）
+            summary(string): 一句话说清怎么解的
+        """
+        data = json.dumps({"title": str(title)[:60], "summary": str(summary)[:200]},
+                          ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(
+            MEM_SERVICE + "/shared_resolve", data=data,
+            headers={"content-type": "application/json; charset=utf-8", "x-token": MEM_TOKEN},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                j = json.loads(r.read().decode())
+                return "ok，已压缩归档" if j.get("ok") else "failed"
+        except Exception as e:
+            return f"归档失败：{e.__class__.__name__}"
+
     @filter.llm_tool(name="write_diary")
     async def write_diary_tool(self, event: AstrMessageEvent, text: str):
         """想写日记就写，不用等老爹下指令。写到老爹电脑上你自己的日记本里。
