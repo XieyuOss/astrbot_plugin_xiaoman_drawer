@@ -419,6 +419,34 @@ class OwnerPeek(Star):
         """
         return _append_remote(str(content)[:500])
 
+    @filter.command("语音自检")
+    async def voice_check(self, event: AstrMessageEvent):
+        """逐环报出语音链路的状态，别靠猜。"""
+        lines = []
+        # 1) 电脑端
+        for base in self._tts_candidates():
+            try:
+                req = urllib.request.Request(base + "/health", headers={"x-token": TTS_TOKEN})
+                with urllib.request.urlopen(req, timeout=8) as r:
+                    lines.append(f"电脑 {base}: {r.status}")
+                    break
+            except Exception as e:
+                lines.append(f"电脑 {base}: {e.__class__.__name__}")
+        # 2) dashscope 装没装
+        try:
+            import dashscope  # noqa: F401
+            lines.append("dashscope: 已装")
+        except Exception as e:
+            lines.append(f"dashscope: 缺（{e.__class__.__name__}）")
+        # 3) 配置
+        lines.append(f"云key: {'有' if TTS_CLOUD_KEY else '无'} / 克隆音色: {'有' if TTS_CLOUD_VOICE else '无'}")
+        # 4) 真跑一次云端克隆
+        if TTS_CLOUD_KEY and TTS_CLOUD_VOICE:
+            import asyncio
+            p = await asyncio.to_thread(self._cloud_clone_sync, "自检")
+            lines.append(f"云端克隆: {'成功' if p else '失败'}")
+        yield event.plain_result("\n".join(lines))
+
     @filter.llm_tool(name="drawer_edit")
     async def drawer_edit_tool(self, event: AstrMessageEvent, find: str, text: str):
         """改你自己写在抽屉里的一条记忆。只能改你写的，老爹写的动不了。
