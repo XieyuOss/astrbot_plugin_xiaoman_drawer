@@ -68,6 +68,24 @@ TTS_CLOUD_MODEL = "qwen3-tts-flash"
 TTS_CLOUD_VOICE = "Cherry"
 # 克隆那条用的模型（和 voice_id 配套；v2 的 id 不一定能在 v3.5 上用）
 TTS_CLOUD_CLONE_MODEL = "cosyvoice-v2"
+# 情绪档位：她说话时自己挑，别每句都甜
+EMOTIONS = {
+    "normal": {},
+    "smile": {  # 平时用这个：带笑意，但话尾不飘
+        "instruction": "带一点笑意的自然语气，轻快但别拖尾音",
+        "speech_rate": 1.02,
+    },
+    "coquettish": {  # 撒娇、提要求
+        "instruction": "撒娇、雀跃，有点小抱怨但不生气，尾音轻快上扬",
+        "speech_rate": 1.06,
+        "pitch_rate": 1.03,
+    },
+    "soft": {  # 哄人、难过时，软一档
+        "instruction": "温柔、放轻、语速慢一点，像贴着耳朵说话",
+        "speech_rate": 0.95,
+        "pitch_rate": 0.99,
+    },
+}
 TTS_CLOUD_URL = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
 REFUSE_IMG = Path(__file__).parent / "assets" / "refuse.jpg"
 
@@ -219,7 +237,7 @@ class OwnerPeek(Star):
                 urls.append(u)
         return urls
 
-    async def _speak(self, text: str) -> str | None:
+    async def _speak(self, text: str, emotion: str = "normal") -> str | None:
         """先试老爹电脑上的克隆音；连不上就用本机 edge-tts 兜底，保证有声音。
 
         地址可以是 Tailscale 的 100.x，也可以是 adb 隧道；哪个通就用哪个。
@@ -257,7 +275,7 @@ class OwnerPeek(Star):
         # 配成 qwen3 的音色会直接报 "voice does not exist or is not licensed"。
         if TTS_CLOUD_KEY and TTS_CLOUD_VOICE.startswith("cosyvoice-"):
             import asyncio
-            clone = await asyncio.to_thread(self._cloud_clone_sync, text)
+            clone = await asyncio.to_thread(self._cloud_clone_sync, text, emotion)
             if clone:
                 logger = getattr(self, "logger", None)
                 if logger:
@@ -324,22 +342,24 @@ class OwnerPeek(Star):
                 logger.warning(f"[xiaoman] 云语音失败: {e}")
         return None
 
-    def _cloud_clone_sync(self, text: str) -> str | None:
+    def _cloud_clone_sync(self, text: str, emotion: str = "normal") -> str | None:
         """用克隆音合成（同步，必须放到线程里跑，否则卡事件循环）。"""
         try:
             import dashscope
             from dashscope.audio.tts_v2 import SpeechSynthesizer, AudioFormat
 
             dashscope.api_key = TTS_CLOUD_KEY
+            kw = EMOTIONS.get(emotion or "normal", EMOTIONS["normal"])
             syn = SpeechSynthesizer(
                 model=TTS_CLOUD_CLONE_MODEL or "cosyvoice-v2",
                 voice=TTS_CLOUD_VOICE,
                 format=AudioFormat.WAV_24000HZ_MONO_16BIT,
+                **kw,
             )
             data = syn.call(text[:120])
             if not data:
                 return None
-            out = Path(TMP_DIR) / f"xm_clone_{abs(hash(text)) % 10**10}.wav"
+            out = Path(TMP_DIR) / f"xm_clone_{abs(hash(text + (emotion or ''))) % 10**10}.wav"
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_bytes(data)
             return str(out) if out.stat().st_size > 2000 else None
@@ -363,20 +383,30 @@ class OwnerPeek(Star):
             return None
 
     @filter.llm_tool(name="say_voice")
-    async def say_voice_tool(self, event: AstrMessageEvent, text: str):
+    async def say_voice_tool(self, event: AstrMessageEvent, text: str, emotion: str = "smile"):
         """把你要说的话用声音说出来。不想出声就别调用——发不发语音由你自己决定。
 
         重要：text 必须是你这次要回复的那句话本身，原样放进来。
         不要另写一段、不要概括、不要换话题——音里说的和文字看到的必须是同一句。
+
+        情绪档位（别每句都甜，甜一整段就没味了）：
+        - smile：平时用，带点笑，话尾不飘
+        - coquettish：撒娇、提要求、小抱怨时用
+        - soft：哄人、自己也难过时用，软一档
+        - normal：平平地说，交代事情时用
 
         想知道能不能出声，只能调用这个工具试一次。
         不许凭印象说"端口没开""服务没起来"——没调用就没有发言权。
 
         Args:
             text(string): 你要说的那一句原话，一句话，别太长
+            emotion(string): smile / coquettish / soft / normal，挑一个贴合的
         """
         text = str(text)[:200]
-        path = await self._speak(text)
+        emo = str(emotion or "smile").strip().lower()
+        if emo not in EMOTIONS:
+            emo = "smile"
+        path = await self._speak(text, emo)
         if not path:
             return "这次真没出声：刚试过合成，失败了。可以直接说没成功，别猜原因"
         rec = self._record(path)
