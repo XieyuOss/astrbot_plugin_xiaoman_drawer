@@ -66,6 +66,8 @@ FALLBACK_VOICE = "zh-CN-XiaoxiaoNeural"
 TTS_CLOUD_KEY = ""
 TTS_CLOUD_MODEL = "qwen3-tts-flash"
 TTS_CLOUD_VOICE = "Cherry"
+# 克隆那条用的模型（和 voice_id 配套；v2 的 id 不一定能在 v3.5 上用）
+TTS_CLOUD_CLONE_MODEL = "cosyvoice-v2"
 TTS_CLOUD_URL = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
 REFUSE_IMG = Path(__file__).parent / "assets" / "refuse.jpg"
 
@@ -196,10 +198,11 @@ class OwnerPeek(Star):
         except Exception:
             pass
         try:
-            global TTS_CLOUD_KEY, TTS_CLOUD_MODEL
+            global TTS_CLOUD_KEY, TTS_CLOUD_MODEL, TTS_CLOUD_CLONE_MODEL
             TTS_CLOUD_KEY = str((config or {}).get("tts_cloud_key", "") or "")
             TTS_CLOUD_MODEL = str((config or {}).get("tts_cloud_model", "") or "qwen3-tts-flash")
             TTS_CLOUD_VOICE = str((config or {}).get("tts_cloud_voice", "") or "")
+            TTS_CLOUD_CLONE_MODEL = str((config or {}).get("tts_cloud_clone_model", "") or "cosyvoice-v2")
         except Exception:
             pass
 
@@ -329,7 +332,7 @@ class OwnerPeek(Star):
 
             dashscope.api_key = TTS_CLOUD_KEY
             syn = SpeechSynthesizer(
-                model="cosyvoice-v2",
+                model=TTS_CLOUD_CLONE_MODEL or "cosyvoice-v2",
                 voice=TTS_CLOUD_VOICE,
                 format=AudioFormat.WAV_24000HZ_MONO_16BIT,
             )
