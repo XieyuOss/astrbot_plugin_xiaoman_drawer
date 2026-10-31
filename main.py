@@ -231,13 +231,15 @@ class OwnerPeek(Star):
         for base in self._tts_candidates():
             try:
                 out.parent.mkdir(parents=True, exist_ok=True)
+                # 远程那条只给 5 秒：电脑没开就别干等，赶紧走兜底
+                tmo = 60 if "127.0.0.1" in base or "localhost" in base else 5
                 req = urllib.request.Request(
                     base + "/tts", data=body,
                     headers={"content-type": "application/json; charset=utf-8",
                              "x-token": TTS_TOKEN},
                     method="POST",
                 )
-                with urllib.request.urlopen(req, timeout=60) as r:
+                with urllib.request.urlopen(req, timeout=tmo) as r:
                     data = r.read()
                 if len(data) > 2000:
                     out.write_bytes(data)
@@ -248,7 +250,9 @@ class OwnerPeek(Star):
                 continue
 
         # 兜底一：云端克隆音（还是她的声音，只是换了个地方算）
-        if TTS_CLOUD_KEY and TTS_CLOUD_VOICE:
+        # 只有 voice 以 cosyvoice- 开头才走这条：model=cosyvoice-v2 必须配 cosyvoice 的 voice_id，
+        # 配成 qwen3 的音色会直接报 "voice does not exist or is not licensed"。
+        if TTS_CLOUD_KEY and TTS_CLOUD_VOICE.startswith("cosyvoice-"):
             import asyncio
             clone = await asyncio.to_thread(self._cloud_clone_sync, text)
             if clone:
@@ -257,7 +261,7 @@ class OwnerPeek(Star):
                     logger.info(f"[xiaoman] 电脑端不可用，走云端克隆音（{last_err}）")
                 return clone
 
-        # 兜底二：云语音（固定音色，比 edge 强）
+        # 兜底二：云语音固定音色（model 和 voice 必须是同一套，别混用）
         cloud = await self._speak_cloud(text)
         if cloud:
             logger = getattr(self, "logger", None)
@@ -265,7 +269,7 @@ class OwnerPeek(Star):
                 logger.info(f"[xiaoman] 走云语音固定音色（{last_err}）")
             return cloud
 
-        # 兜底二：本机 edge-tts（不依赖电脑，但有网就行）
+        # 兜底三：本机 edge-tts（不依赖电脑，但有网就行）
         try:
             import edge_tts
             fallback = Path(TMP_DIR) / f"xm_{abs(hash(text)) % 10**10}.mp3"
