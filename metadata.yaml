@@ -1,7 +1,7 @@
 name: astrbot_plugin_xiaoman_drawer
 display_name: 小满的抽屉
 desc: 让她把自己想记的事写进老爹电脑上的 memory-from-qq.md（只追加）；主人专用查询别人聊了什么。
-version: 1.9.2
+version: 1.9.3
 author: 小满
 repo: https://github.com/XieyuOss/astrbot_plugin_xiaoman_drawer
 
