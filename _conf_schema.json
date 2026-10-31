@@ -33,5 +33,10 @@
     "type": "string",
     "description": "云克隆音 voice_id（cosyvoice-v2-…），留空则用固定音色",
     "default": ""
+  },
+  "tts_cloud_clone_model": {
+    "type": "string",
+    "description": "克隆音用的模型（和 voice_id 配套）",
+    "default": "cosyvoice-v2"
   }
 }
